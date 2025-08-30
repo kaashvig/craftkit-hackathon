@@ -1,34 +1,35 @@
-import { NextResponse } from "next/server"
-import { getSupabaseServer } from "@/lib/supabase/server"
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 
-export async function GET() {
-  const supabase = getSupabaseServer()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+export async function POST() {
+  const url = process.env.SUPABASE_URL!;
+  const key = process.env.SUPABASE_ANON_KEY!;
 
-  const { data, error } = await supabase
-    .from("projects")
-    .select("*")
-    .eq("owner_id", user.id)
-    .order("created_at", { ascending: false })
+  const cookieStore = await cookies();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ projects: data })
-}
+  // 👇 Force supabase type to any (so .from works without TS error)
+  const supabase: any = createServerClient(url, key, {
+    cookies: {
+      get: (name: string) => cookieStore.get(name)?.value,
+      set: () => {},
+      remove: () => {},
+    },
+  });
 
-export async function POST(req: Request) {
-  const supabase = getSupabaseServer()
-  const body = await req.json()
-  const name: string = body?.name || "MyApp"
+  const { data: userData, error: userErr } = await supabase.auth.getUser();
+  if (userErr || !userData?.user) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const { error: upsertErr } = await supabase.from("profiles").upsert({
+    id: userData.user.id,
+    email: userData.user.email ?? null,
+  });
 
-  const { data, error } = await supabase.from("projects").insert({ name, owner_id: user.id }).select().single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ project: data })
+  if (upsertErr) {
+    return NextResponse.json({ ok: false, error: upsertErr.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
 }
