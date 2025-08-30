@@ -1,4 +1,4 @@
-// lib/supabase/mock-server.ts
+// lib/supabase/server.ts
 export function getSupabaseServer() {
   // Mock Supabase for hackathon demo
   return {
